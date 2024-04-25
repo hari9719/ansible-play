@@ -1,0 +1,68 @@
+---
+- name: Playbook Control Lab
+  hosts: webservers
+  vars_files: vars.yml
+  tasks:
+     - name: Check if the remote system is running Red Hat Enterprise Linux
+       fail:
+         msg: "The remote system is not running Red Hat Enterprise Linux."
+       when: ansible_distribution != 'RedHat'
+
+     - name: Check if the remote system meets minimum RAM requirements
+       fail:
+         msg: "The remote system does not meet the minimum RAM requirements."
+       when: ansible_memory_mb.real.total < min_ram_mb
+
+     - name:  Ensure required packages are present.
+       package:
+         name: "{{ packages }}"
+         state: latest
+
+     - name: Enable and start services
+       service:
+         name: "{{ item }}"
+         state: started
+         enabled: yes
+       loop: "{{ services }}"
+     
+    #Block of config tasks
+     - name: Block of config tasks
+       block:
+       - name: Ensure ssl_cert_dir exists
+         file:
+             path: "{{ ssl_cert_dir }}"
+             state: directory
+         register: ssl_cert_dir_result
+       - name: Copy web config files to remote host
+         copy:
+             src: "{{ item.src }}"
+             dest: "{{ item.dest }}"
+         with_items: "{{ web_config_files }}"                                          
+         notify: restart web services
+         ignore_errors: true
+
+       - name: Debug if the configuration fails
+         debug:
+             msg: " One or more of the configuration changes failed, but the web service is still active."
+         when: ssl_cert_dir_result.failed or web_config _copy_result.failed
+
+         when: ssl_cert_dir is defined and web_config_files is defined
+  
+    #Configure the firewall
+       - name: configure firewall
+         firewalld:
+             service: "{{ item }}"
+             state: enabled
+             immediate: yes
+             permanent: true
+         with_items:
+              - http
+              - https
+
+    #Add handlers
+  handlers:
+       - name:  restart the web services
+         service:
+            name: "{{ web_services }}"
+            state: restarted
+
